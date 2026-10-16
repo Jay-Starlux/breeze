@@ -499,11 +499,16 @@ func (m *lifecycleManager) reconcileActiveLocked(ctx context.Context, entry Ledg
 	}
 	evidence := evidenceFromEntry(entry)
 	evidence.BootID = bootID
+
 	if entry.PID <= 0 || entry.JobName == "" || entry.ProcessCreationTime == nil || entry.BootID == "" {
+		if !hasAnyProcessIdentity(entry) {
+			return m.recoverUnlaunchedActiveEntry(ctx, entry)
+		}
 		result := m.result(entry.ActuationID, entry.Generation, ResultFailed, evidence)
 		result.FailureCode = "reconcile_identity_unavailable"
 		return result, false
 	}
+
 	process := ProcessIdentity{PID: entry.PID, ProcessCreationTime: *entry.ProcessCreationTime, JobName: entry.JobName, BootID: entry.BootID}
 	if entry.BootID == bootID {
 		job, members, reopenErr := m.windows.ReopenAndVerifyActive(ctx, entry.JobName, process)
