@@ -196,7 +196,7 @@ func (m *lifecycleManager) apply(ctx context.Context, cmd ApplyCommand, handoff 
 
 	credential, err := m.account.Promote(ctx)
 	if err != nil {
-		return m.failed(cmd.ActuationID, cmd.Generation, bootID, "account_promotion_failed")
+		return m.failBeforeLaunch(cmd, bootID, "account_promotion_failed", err)
 	}
 	deprovisionOnFailure := true
 	defer func() {
@@ -214,7 +214,7 @@ func (m *lifecycleManager) apply(ctx context.Context, cmd ApplyCommand, handoff 
 		creationFlags: createSuspended,
 	})
 	if err != nil {
-		return m.failed(cmd.ActuationID, cmd.Generation, bootID, "create_process_failed")
+		return m.failBeforeLaunch(cmd, bootID, "create_process_failed", err)
 	}
 	process.Identity.TargetHash = targetHash
 	process.Identity.BootID = bootID
@@ -847,6 +847,14 @@ func (m *lifecycleManager) failed(actuationID string, generation uint64, bootID,
 	result := m.result(actuationID, generation, ResultFailed, ResultEvidence{BootID: bootID})
 	result.FailureCode = code
 	return result
+}
+
+// failBeforeLaunch handles an apply that failed before any process existed.
+func (m *lifecycleManager) failBeforeLaunch(cmd ApplyCommand, bootID, code string, cause error) Result {
+	log.Warn("PAM apply failed before launch",
+		"actuationId", cmd.ActuationID, "generation", cmd.Generation,
+		"failureCode", code, "error", cause.Error())
+	return m.failed(cmd.ActuationID, cmd.Generation, bootID, code)
 }
 
 func JobName(actuationID string, generation uint64) string {
