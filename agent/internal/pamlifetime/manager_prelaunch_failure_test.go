@@ -78,3 +78,36 @@ func TestPreLaunchFailureLogsUnderlyingError(t *testing.T) {
 		})
 	}
 }
+
+func TestPromoteFailureStillDeprovisionsAccount(t *testing.T) {
+	var order []string
+	win := &fakeWindowsPrimitives{order: &order}
+	account := &fakeAccountLifecycle{
+		order:      &order,
+		promoteErr: errors.New("NetLocalGroupAddMembers: access denied"),
+	}
+	manager := newLifecycleManager(NewStore(filepath.Join(t.TempDir(), "ledger.json")), win, account, nil)
+
+	result := manager.Apply(context.Background(), validApply(1))
+
+	if result.State != ResultFailed || result.FailureCode != "account_promotion_failed" {
+		t.Fatalf("Apply = %s/%s, want failed/account_promotion_failed", result.State, result.FailureCode)
+	}
+	if account.deprovisionCount != 1 {
+		t.Fatalf("Deprovision ran %d times after a failed Promote, want 1; order: %v", account.deprovisionCount, order)
+	}
+	// Cleanup must follow the promote attempt, never precede it.
+	promoteAt, deprovisionAt := indexOf(order, "promote dormant account"), indexOf(order, "rotate password, remove Administrators, disable account")
+	if promoteAt < 0 || deprovisionAt < promoteAt {
+		t.Fatalf("want promote before deprovision; order: %v", order)
+	}
+}
+
+func indexOf(items []string, want string) int {
+	for i, item := range items {
+		if item == want {
+			return i
+		}
+	}
+	return -1
+}

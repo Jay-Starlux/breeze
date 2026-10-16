@@ -194,10 +194,7 @@ func (m *lifecycleManager) apply(ctx context.Context, cmd ApplyCommand, handoff 
 		return m.result(cmd.ActuationID, cmd.Generation, ResultReceived, evidenceFromEntry(entry))
 	}
 
-	credential, err := m.account.Promote(ctx)
-	if err != nil {
-		return m.failBeforeLaunch(cmd, bootID, "account_promotion_failed", err)
-	}
+	var credential elevaccount.Credential
 	deprovisionOnFailure := true
 	defer func() {
 		zeroString(&credential.Password)
@@ -207,6 +204,11 @@ func (m *lifecycleManager) apply(ctx context.Context, cmd ApplyCommand, handoff 
 			_, _ = m.account.Deprovision(cleanupCtx)
 		}
 	}()
+
+	credential, err = m.account.Promote(ctx)
+	if err != nil {
+		return m.failBeforeLaunch(cmd, bootID, "account_promotion_failed", err)
+	}
 
 	process, err := m.windows.CreateSuspended(ctx, suspendedLaunchSpec{
 		actuationID: cmd.ActuationID, username: credential.Username, password: credential.Password,
