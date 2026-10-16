@@ -852,10 +852,17 @@ func (m *lifecycleManager) failed(actuationID string, generation uint64, bootID,
 }
 
 // failBeforeLaunch handles an apply that failed before any process existed.
+// It tombstones the entry so a replay cannot re-run it, and so the next
+// Reconcile resolves it from fresh job/token/account evidence instead of
+// failing closed on an entry with no process identity.
 func (m *lifecycleManager) failBeforeLaunch(cmd ApplyCommand, bootID, code string, cause error) Result {
 	log.Warn("PAM apply failed before launch",
 		"actuationId", cmd.ActuationID, "generation", cmd.Generation,
 		"failureCode", code, "error", cause.Error())
+	if err := m.store.MarkReconciledClean(cmd.ActuationID, cmd.Generation); err != nil {
+		log.Error("PAM could not mark unlaunched actuation for recovery; reconciliation will fail closed",
+			"actuationId", cmd.ActuationID, "generation", cmd.Generation, "error", err.Error())
+	}
 	return m.failed(cmd.ActuationID, cmd.Generation, bootID, code)
 }
 
