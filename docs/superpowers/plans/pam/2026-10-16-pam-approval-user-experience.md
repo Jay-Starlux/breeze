@@ -52,13 +52,13 @@ The scope here is exactly #8971's D7 list of items that "stay in #8928":
 | The third "Use admin credentials" button, as a new `withdrawn_reason` with the CHECK widened | Tasks 2.1–2.3 |
 | MessageBox fallback for three choices | Task 2.2 |
 | Approve-time consent dismiss outside `denyConsent` | Task 2.3 |
-| Mobile withdraw copy (needs a `finalStatus` API contract change and an app release) | **Not planned.** It is not in issue #8928. See "Open scope question". |
+| Mobile withdraw copy (needs a `finalStatus` API contract change and an app release) | **Out of scope.** It is not in issue #8928, so it moves to its own follow-up issue. See "Mobile withdraw copy". |
 
 There is one extra item outside D7: the offline toast (Task 1.8). It comes from issue #8928 itself and touches nothing #8971 owns.
 
 **Ordering:** PR 1 does not depend on #8971. PR 2 needs #8971 PR A (API) and PR B (agent) merged first.
 
-**Open scope question:** #8971 D4 hands "withdraw-specific mobile copy" to #8928, for when the phone shows a request the user withdrew. Until someone decides, the phone shows #8971's existing "expired" / "Already decided elsewhere" states. Adding it here would need a `finalStatus` API change and a mobile release. The proposal is to file it as its own issue.
+**Mobile withdraw copy (decided 2026-10-20: separate issue).** #8971 D4 hands "withdraw-specific mobile copy" to #8928. The requester decided it gets its own follow-up issue instead, because it needs a `finalStatus` API contract change and a mobile app release. Until that issue lands, the phone shows #8971's existing "expired" / "Already decided elsewhere" states. Neither PR here touches it.
 
 ---
 
