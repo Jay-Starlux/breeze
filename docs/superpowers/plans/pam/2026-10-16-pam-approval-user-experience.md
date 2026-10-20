@@ -26,6 +26,8 @@ status: draft
 - Issue #8928, plus the owner's review comments on it (2026-10-16, 2026-10-17 and 2026-10-18).
 - The design was approved section by section in brainstorming on 2026-10-16.
 - This revision (2026-10-20) applies the review. See "Review responses".
+- The decisions the review opened (T1–T4, plus the one-plan shape) were settled in brainstorming on 2026-10-20. See "Decisions".
+- The Design section below is the spec. There is no separate spec doc, at the requester's request.
 
 ---
 
@@ -289,6 +291,8 @@ export async function enqueuePamRequestNotify(
   ```
   The system scope stops `readWithPartnerAxisVisibility` from opening a second pooled connection while the request's transaction is held.
 - **Response:** add `...(supportName ? { supportName } : {})` to the 201 body. The two `200 { status: 'ignored' }` paths are unchanged.
+- **Interfaces:**
+  - Produces: the 201 body becomes `{ id, status, enforcementStatus?, supportName? }`, where `supportName` is a string of at most 120 characters. Task 1.6 consumes it.
 - **Tests** in `elevationRequests.test.ts`:
   - `returns supportName from partner branding`
   - `omits supportName when branding is null`
@@ -345,6 +349,16 @@ Entries are keyed by the server request ID, never by the program. So a second re
   - **On disk:** `rememberSupportName` persists it only when it changes, to `filepath.Join(filepath.Dir(h.statePath), "pam-support-name.json")`. The write is 0600, a temp file then `atomicrename.Replace`, following `reliability_state.go`.
   - **On load:** read it in `SetStatePath` (`heartbeat.go:1644`). A corrupt or missing file counts as empty and is logged at Warn.
 - `lastSupportName()` returns the cached value or `""`. The copy helpers apply the `IT` fallback.
+
+**Interfaces:**
+- Consumes: Task 1.4's optional `supportName` in the response, and Task 1.5's `pamSupportName`.
+- Produces:
+  ```go
+  // etwlua.ElevationOutcome.SupportName string  — used by Tasks 1.7, 2.3
+  func (h *Heartbeat) rememberSupportName(s string) // no-op on ""; persists on change
+  func (h *Heartbeat) lastSupportName() string      // used by Task 1.8
+  const pamSupportNameFile = "pam-support-name.json"
+  ```
 
 - [ ] **Step 1: Write the failing tests.**
   - `TestSendElevationRequestParsesSupportName`: when present, it is set on the outcome and in the cache; when absent, the cache is unchanged.
@@ -495,6 +509,10 @@ Entries are keyed by the server request ID, never by the program. So a second re
   - With the flag, use `MB_YESNOCANCEL|…` (the same other flags) and append the legend.
   - Mapping: `IDYES` → Approved, `IDNO` → `{DismissedByUser:true}`, `IDCANCEL` → `{LocalCredentials:true}`.
   - Without the flag, behaviour is byte-for-byte unchanged.
+- **Interfaces:**
+  - Produces, for Task 2.3:
+    - `ipc.PamRequestDialog.AllowLocalCredentials` (bool) and `ipc.PamRequestDialog.SupportName` (string).
+    - `ipc.PamDialogResult.LocalCredentials` (bool). It is set only by button 102 or by `IDCANCEL` in the fallback, and only when `AllowLocalCredentials` was true.
 - Tests, in `pam_dialog_content_test.go`:
   - `TestPamDialogShowsLocalCreds`.
   - `TestPamMessageBoxLegend`: the exact text, with a support name and with an empty one.
@@ -502,6 +520,17 @@ Entries are keyed by the server request ID, never by the program. So a second re
 - [ ] Write the failing tests, then implement. Run `cd agent && go test -race ./internal/userhelper/ ./internal/ipc/` and `GOOS=windows go vet ./internal/userhelper/`. Expected: PASS, with vet clean. Commit `feat(agent/pam): add "Use admin credentials" to the elevation dialog and its fallback (#8928)`.
 
 ### Task 2.3: Decision mapping, Approve-time dismiss, waiting toast (agent heartbeat)
+
+**Interfaces:**
+- Consumes:
+  - Task 2.2's IPC fields.
+  - Task 1.5's `pamTracker().MarkAwaiting`, `notifyPamUser` and `pamCopyWaiting`.
+  - Task 1.6's `outcome.SupportName`.
+  - From #8971: `h.pamDeclines` (`*pamdecline.Store`), with `Decline(id, Reason) error` and `Consent(id) error`, and `h.kickPamWithdrawDrain()`.
+- Produces:
+  - `sessionbroker.PamActionWithdrawLocal`.
+  - `pamdecline.ReasonLocalCredentials`.
+  - `func (h *Heartbeat) dismissConsentForRemote(session *sessionbroker.Session, requestID, targetWinSession string)`.
 
 **Files:**
 - `agent/internal/sessionbroker/pam_decision.go`:
@@ -565,9 +594,13 @@ Record each result in the PR:
 
 ---
 
-## Decisions for Todd (defaults are what this plan implements)
+## Decisions (approved by the requester in brainstorming, 2026-10-20)
 
-CLAUDE.md's advisor quorum (`codex exec` at `xhigh`) could not run, because the Codex CLI wasn't available in the authoring environment. These are the calls a second opinion would have checked:
+This plan implements each **Default** below. The requester chose the default every time. The maintainer may still override any of them in review.
+
+CLAUDE.md's advisor quorum (`codex exec` at `xhigh`) could not run, because the Codex CLI wasn't available in the authoring environment. These are the calls a second opinion would have checked.
+
+- **T0: Document shape.** One plan covers both PRs. PR 2 is written against #8971's merged plan, and its precondition step re-verifies the names against #8971's code once that code lands. The alternative was planning PR 1 only, which was rejected.
 
 - **T1: Approve-time dismiss whose proof is uncertain.**
   - **Default:** a Warn log only, with no gate. This is safe because neither `pam_apply_v2` nor #8971's apply refusal uses the prompt. The helper's own deadline bounds a late Escape.
