@@ -33,25 +33,32 @@ status: draft
 
 ## Relationship to #8971 (read first)
 
-#8971's plan (`2026-10-18-pam-user-decision-reaches-server.md`, merged as a doc in #9185, not implemented yet) owns the shared base. This plan does **not** rebuild it:
+**This plan covers only what #8971 does not.** #8971's plan (`2026-10-18-pam-user-decision-reaches-server.md`, merged as a doc in #9185, not yet implemented) owns all of these, and this plan neither builds nor re-tests them:
+- the withdraw route and its guards;
+- the `withdrawn` status, columns and audit event;
+- the agent's decline store and its refusal to launch a declined request;
+- the withdraw outbox drain;
+- the Deny / timeout / dialog-error reasons;
+- the "Withdrawn" badge and filters.
 
-- **Withdraw route:** `POST /api/v1/agents/:id/elevation-requests/:requestId/withdraw`, with device ownership in SQL, pending only, a row lock, mobile-approval expiry, audit and the `elevation.withdrawn` event.
-- **Status and columns:** the `withdrawn` status and audit event; the `withdrawn_at` and `withdrawn_reason` columns and their CHECK; `PAM_WITHDRAW_REASONS`.
-- **Agent decline store:** `agent/internal/pamdecline` keeps a durable decline record. It refuses `pam_apply_v2` and `actuate_elevation` for a declined ID, and waits while a dialog is open.
-- **Agent delivery:** the withdraw outbox drain, and the mapping from Deny, timeout and error to the reasons `user_denied`, `user_timeout` and `dialog_error`.
-- **Web:** the "Withdrawn" badge, the reason line and the filters.
+The scope here is exactly #8971's D7 list of items that "stay in #8928":
 
-| Was in the 2026-10-16 draft | Now |
+| #8971 D7 item | Here |
 |---|---|
-| Task 1 `withdrawn` enum + mirrors | Dropped; #8971 A1/A3/C1 |
-| Task 5B withdraw route | Dropped; #8971 A2 |
-| Agent tracker `pamTrackWithdrawn` state + `MarkWithdrawn` | Dropped; #8971's `pamdecline.Store.Check` is the authority |
-| `PamDialogResult.TimedOut` field | Dropped; #8971 maps the helper countdown (`Approved=false, DismissedByUser=false`) to `user_timeout` |
-| Withdraw on Deny/timeout (`user_denied`/`no_response`) | Dropped; #8971 B2/B4 (`user_denied`/`user_timeout`) |
-| Task 10 "refuse withdrawn apply" guard | Dropped; #8971 B3 |
-| Withdraw reason `local_credentials` | **Kept, PR 2**: one more `PAM_WITHDRAW_REASONS` value, with the CHECK widened |
+| Outcome toasts | Tasks 1.5, 1.7 |
+| `pam_request_notify` + `pamUserNotifyProtocolVersion` | Tasks 1.1–1.3, 1.7 |
+| `supportName` in the submit response, and its caching | Tasks 1.4, 1.6 |
+| Deny-reason labelling and truncation | Tasks 1.3, 1.9 |
+| The third "Use admin credentials" button, as a new `withdrawn_reason` with the CHECK widened | Tasks 2.1–2.3 |
+| MessageBox fallback for three choices | Task 2.2 |
+| Approve-time consent dismiss outside `denyConsent` | Task 2.3 |
+| Mobile withdraw copy (needs a `finalStatus` API contract change and an app release) | **Not planned.** It is not in issue #8928. See "Open scope question". |
+
+There is one extra item outside D7: the offline toast (Task 1.8). It comes from issue #8928 itself and touches nothing #8971 owns.
 
 **Ordering:** PR 1 does not depend on #8971. PR 2 needs #8971 PR A (API) and PR B (agent) merged first.
+
+**Open scope question:** #8971 D4 hands "withdraw-specific mobile copy" to #8928, for when the phone shows a request the user withdrew. Until someone decides, the phone shows #8971's existing "expired" / "Already decided elsewhere" states. Adding it here would need a `finalStatus` API change and a mobile release. The proposal is to file it as its own issue.
 
 ---
 
@@ -63,8 +70,7 @@ status: draft
 | Only dismiss when `pam_apply_v2` is available; legacy `actuate_elevation` types into that prompt. | The dismiss runs only when `pamLifetimeProtocolVersion() == 2`. That is the same condition the server uses to dispatch `pam_apply_v2` (worker `pamActuationWorker.ts:91-97`, claim gate `commandDispatch.ts:360-361`). `pam_apply_v2` never touches consent.exe. `actuate_elevation` is now issued only by the manual MFA admin route `routes/devices/actuateElevation.ts`, and nothing in `apps/web` calls it. If an admin uses that route after a dismiss, it fails `no_consent_window` (sendinput) and nothing launches. That is fail-closed, and the PR says so. | D1, Task 2.3 |
 | `supportName` arrives with a successful submit, but the offline toast fires on a failed one. Cache it. | The agent keeps the last non-empty `supportName` in memory **and** persists it in a sidecar `pam-support-name.json` next to `pam-lifetime-ledger.json`. The file is 0600 and written as a temp file plus `atomicrename.Replace`, the `reliability_state.json` pattern. It is loaded in `SetStatePath`. The offline toast says "IT" only on a device that has never completed a submit. It is not stored in `agent.state`, because `agentapp/main.go` rewrites that struct on start and stop. | Task 1.6 |
 | The MessageBox fallback is Yes/No only; how does the third choice appear there? | With `AllowLocalCredentials`, the fallback uses `MB_YESNOCANCEL` and ends the body with a legend: Yes = send to {s}, No = deny, Cancel = enter admin credentials in the Windows prompt. `IDCANCEL` (and so Esc) maps to `LocalCredentials`. That is the safe failure: nothing is dismissed, and the request is declined locally, so no remote approval can launch it. Without the flag the box stays `MB_YESNO`, unchanged. The fallback only appears when the custom window can't be created (`pam_dialog_window_windows.go:319-328, 411-422, 477-479`). | D4, Task 2.2 |
-| `withdrawn` isn't a status yet: it needs an enum migration, the list filter, the web filters and the audit enum. | Owned by #8971 (A1, A3, C1). PR 2 only widens the reason CHECK and `PAM_WITHDRAW_REASONS` with `local_credentials`, and adds its web label. | Task 2.1 |
-| Withdraw should accept only the agent's own device, move only pending → withdrawn, and expire linked mobile approvals. | Owned by #8971 A2/D1/D3, which has exactly those guards. PR 2 reuses the route unchanged. | — |
+| `withdrawn` status (enum migration, filters, audit enum); withdraw route guards (own device only, pending only, mobile-approval expiry). | Not in this plan; #8971 owns all of it (A1–A3, C1). PR 2 only adds the `local_credentials` reason value and its label. | Task 2.1 |
 | Deny reasons allow 2000 chars. Truncate and sanitize them for the toast, and mark every deny-reason field (web modals, mobile `DenyReasonSheet`) as shown to the end user. | The server sanitizes the **payload copy** only. It strips C0 controls except `\n`, collapses three or more newlines to two, trims, and caps at 500 runes with a trailing `…`. The stored `denial_reason` is untouched, and the agent refuses anything over the caps. The "shown to the user" label and hint go on three fields: `PamRespondModal`; the PAM-linked cards in `ApprovalsInbox` (per-card deny; group deny is never PAM, `batchDecide.ts:158-175`); and mobile `DenyReasonSheet` for `uac_intercept` approvals. The sheet also gets `maxLength={500}`: it has none today, and the server caps at 500 (`routes/approvals.ts:615-617`). | Tasks 1.3, 1.9 |
 | The new command type needs entries in the command registries (claim eligibility, result acceptance, offline policy). | Done; Task 1.2 has the full list. On **result acceptance**: there is no per-type result allowlist. Acceptance is decided by row status (`commandResultAcceptance.ts:54`), and the result of an unregistered type is stored generically. So `pam_request_notify` deliberately has no `commandResultHandlers` entry, and a test pins that its result is accepted and stored. | Task 1.2 |
 | The plan didn't come through as an attachment. | Committed as this file, in its own docs PR. | — |
@@ -142,10 +148,7 @@ status: draft
 2. **`pam_apply_v2` redelivered** (on reconnect or a generation bump) must produce exactly one approved toast. Test: Task 1.7 `TestPamApplyV2ApprovedToastOnce`.
 3. **A notify for an untracked request** (after a restart, or for a request the user declined locally) shows no toast, and the command still succeeds. Test: Task 1.7 `TestPamRequestNotifyUntrackedNoToast`.
 4. **An unproven Approve-time dismiss does not engage the fail-closed gate**, and the dismiss is skipped when the gate is already engaged. Tests: Task 2.3 `TestDismissForRemoteUncertainLeavesGateClear` and `TestDismissForRemoteSkippedWhileGateEngaged`.
-5. **"Use admin credentials", then a technician approval.**
-   - The apply is refused with #8971's `user_declined`, and the UAC prompt was never dismissed.
-   - The row ends `withdrawn` with reason `local_credentials`. If the approval won the race, it ends `approved` with "Declined on the device".
-   - Tests: the Task 2.3 `pending + LocalCredentials` row, and the lab step in Task 2.5.
+5. **"Use admin credentials" must never dismiss UAC, and must record exactly `local_credentials`.** Refusing a later approval is #8971's job (its B3 tests) and is not re-tested here. Tests: the Task 2.3 `pending + LocalCredentials` row, and Task 2.2 `TestPamMessageBoxResult` for Esc / Cancel in the fallback.
 6. **A reason with control characters, `\r\n` runs or 2000 characters** is sanitized and capped in the toast copy. The stored reason is unchanged. Test: Task 1.3 `sanitizes and caps reason`.
 
 ---
@@ -561,7 +564,7 @@ Entries are keyed by the server request ID, never by the program. So a second re
     - pending + Approve, v2 = 2, `SupportName "Contoso IT"` → dismissed once with an ID ending `-remote`, `Request sent to Contoso IT`, tracked, no decline.
     - pending + Approve, v2 = 0 → **not** dismissed, but still toasted and tracked.
     - pending + Approve, and the dismiss returns an error → still toasted and tracked.
-    - pending + LocalCredentials → **not** dismissed, no toast, declined with `local_credentials`, drain kicked. A later apply is refused with `user_declined`.
+    - pending + LocalCredentials → **not** dismissed, no toast, `Decline` called once with `local_credentials`, drain kicked. The apply refusal that follows is #8971 B3's; it is not repeated here.
     - auto_approved + Approve → no dismiss from this path, no toast.
   - `heartbeat/pam_dismiss_remote_test.go`:
     - `TestDismissForRemoteUncertainLeavesGateClear`: the fake returns `PamDismissUncertainError`. Then `pamDismissalUncertain == false`, and the recovery seam is never called.
@@ -580,17 +583,16 @@ Entries are keyed by the server request ID, never by the program. So a second re
 
 ### Task 2.4: PR 2 verification
 
-- [ ] Run the API, web and agent suites as in Task 1.10. Run the integration suites too, including #8971's withdraw suites with the new reason.
+- [ ] Run the API, web and agent suites as in Task 1.10, plus the integration test from Task 2.1.
 
 ### Task 2.5: Windows lab gate (before fleet promote)
 
-Record each result in the PR:
+Record each result in the PR. These cases cover only this plan's behaviour. The withdraw race, restart and corruption cases are #8971's B5 lab gate.
 1. **Approve on a v2-capable agent.** UAC closes, and `Request sent to <partner name>` appears. Then the technician approves: `Request approved` appears, and the app runs once.
 2. **Approve on an agent where `pamLifetimeProtocolVersion` is 0** (simulate one non-v2 condition). UAC stays up, and the waiting toast still appears.
-3. **"Use admin credentials".** UAC stays up, and local admin credentials work. The PAM tab shows **Withdrawn · User chose to enter admin credentials**. A technician approve then gets 409.
-4. **"Use admin credentials" while the API is blocked from the VM.** Approve in the web app, then unblock. The agent refuses the apply (`user_declined`), and nothing more launches. The row shows **Approved · Declined on the device**.
-5. **Force the MessageBox fallback,** with a test build flag or by breaking window-class registration in a debug build. The box shows three buttons and the legend. Cancel behaves like case 3, and so does Esc.
-6. **While the fail-closed gate is engaged** (induce an unproven deny first), Approve a new pending request. No dismiss attempt is logged, and the waiting toast still appears.
+3. **"Use admin credentials".** UAC stays up, and local admin credentials work. The PAM tab shows **Withdrawn · User chose to enter admin credentials**.
+4. **Force the MessageBox fallback,** with a test build flag or by breaking window-class registration in a debug build. The box shows three buttons and the legend. Cancel behaves like case 3, and so does Esc.
+5. **While the fail-closed gate is engaged** (induce an unproven deny first), Approve a new pending request. No dismiss attempt is logged, and the waiting toast still appears.
 
 ---
 
